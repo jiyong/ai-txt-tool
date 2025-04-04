@@ -1,0 +1,6 @@
+beautifulsoup4==4.12.2
+html2text==2024.2.26
+pandas>=2.0.0
+openpyxl>=3.1.0  # 用于读取xlsx文件
+fastapi>=0.109.0
+uvicorn>=0.27.0 

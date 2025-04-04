@@ -1,0 +1,390 @@
+app:
+  description: '{{meta.description}}'
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: advanced-chat
+  name: {{meta.name}}
+  use_icon_as_answer_icon: false
+kind: app
+version: 0.1.5
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 100
+        image_file_size_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: 你好！我是你的图书阅读助理。我可以使用我们书中的内容来帮助你回答任何问题。请提供你的问题，我将确保准确、详细地回复。
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions:
+    - 书的作者是谁？
+    - 这本书主要讲了什么内容？
+    suggested_questions_after_answer:
+      enabled: true
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        sourceType: llm
+        targetType: answer
+      id: llm-answer
+      source: llm
+      sourceHandle: source
+      target: answer
+      targetHandle: target
+      type: custom
+    - data:
+        isInIteration: false
+        sourceType: start
+        targetType: knowledge-retrieval
+      id: 1724998463412-source-1724998514487-target
+      source: '1724998463412'
+      sourceHandle: source
+      target: '1724998514487'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        sourceType: knowledge-retrieval
+        targetType: if-else
+      id: 1724998514487-source-1724998546912-target
+      source: '1724998514487'
+      sourceHandle: source
+      target: '1724998546912'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: llm
+      id: 1724998546912-true-llm-target
+      source: '1724998546912'
+      sourceHandle: 'true'
+      target: llm
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        sourceType: if-else
+        targetType: answer
+      id: 1724998546912-false-1724998585026-target
+      source: '1724998546912'
+      sourceHandle: 'false'
+      target: '1724998585026'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    - data:
+        desc: ''
+        selected: false
+        title: 开始
+        type: start
+        variables: []
+      height: 54
+      id: '1724998463412'
+      position:
+        x: 80
+        y: 282
+      positionAbsolute:
+        x: 80
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        context:
+          enabled: true
+          variable_selector:
+          - '1724998514487'
+          - result
+        desc: ''
+        memory:
+          role_prefix:
+            assistant: ''
+            user: ''
+          window:
+            enabled: false
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: glm-4-plus
+          provider: zhipuai
+        prompt_template:
+        - id: e47c5c6a-f4a2-4041-812d-008bcf239954
+          role: system
+          text: '```xml
+
+            <instructions>
+
+            您的任务是使用本知识库中的上下文内容回答问题。
+
+
+            上下文的知识内容如下：
+
+            <knowledge>
+
+            {{#context#}}
+
+            </knowledge>
+
+
+            请按照以下步骤进行操作：
+
+
+            1. 仔细阅读问题，确保完全理解其含义。
+
+            2. 在本知识库中搜索相关信息，优先考虑知识库中的内容。
+
+            3. 思考问题时，避免引入任何个人偏见或刻板印象。
+
+            4. 逐步分析问题，并提供详尽的答案。
+
+            5. 确保答案准确无误，任何不准确的信息都将受到惩罚。
+
+            6. 如果问题超出本知识库的范围，请礼貌地表示无法提供答案，不要尝试回答。
+
+            7. 在回答问题时，确保输出内容中不包含任何XML标签。
+
+
+            请根据以下示例来构建您的答案：
+
+
+            <example>
+
+            输入：什么是光合作用？
+
+            输出：光合作用是植物、藻类和某些细菌利用阳光将水和二氧化碳转化为氧气和葡萄糖的过程。
+
+            </example>
+
+
+            <example>
+
+            输入：请描述地球自转的后果。
+
+            输出：地球自转导致了昼夜的交替，这对地球上的生物节律有重大影响。
+
+            </example>
+
+
+            <example>
+
+            输入：量子计算机是如何工作的？
+
+            输出：很抱歉，关于量子计算机的工作原理超出了本知识库的范围，无法提供答案。
+
+            </example>
+
+
+            请确保您的回答遵循上述步骤和示例。
+
+            </instructions>
+
+            <examples>
+
+            <example>
+
+            什么是光合作用？
+
+            光合作用是植物、藻类和某些细菌利用阳光将水和二氧化碳转化为氧气和葡萄糖的过程。
+
+            </example>
+
+            <example>
+
+            请描述地球自转的后果。
+
+            地球自转导致了昼夜的交替，这对地球上的生物节律有重大影响。
+
+            </example>
+
+            <example>
+
+            量子计算机是如何工作的？
+
+            很抱歉，关于量子计算机的工作原理超出了本知识库的范围，无法提供答案。
+
+            </example>
+
+            </examples>
+
+            ```'
+        selected: true
+        title: LLM
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      height: 98
+      id: llm
+      position:
+        x: 980
+        y: 282
+      positionAbsolute:
+        x: 980
+        y: 282
+      selected: true
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        answer: '{{#llm.text#}}'
+        desc: ''
+        selected: false
+        title: 直接回复
+        type: answer
+        variables: []
+      height: 103
+      id: answer
+      position:
+        x: 1280
+        y: 282
+      positionAbsolute:
+        x: 1280
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        dataset_ids:
+        - f24eba10-a619-433d-9c7f-9e41d066bb76
+        desc: ''
+        multiple_retrieval_config:
+          reranking_enable: true
+          reranking_mode: weighted_score
+          reranking_model:
+            model: ''
+            provider: ''
+          score_threshold: 0.3
+          top_k: 4
+          weights:
+            keyword_setting:
+              keyword_weight: 0
+            vector_setting:
+              embedding_model_name: embedding-2
+              embedding_provider_name: zhipuai
+              vector_weight: 1
+        query_variable_selector:
+        - '1724998463412'
+        - sys.query
+        retrieval_mode: multiple
+        selected: false
+        single_retrieval_config:
+          model:
+            completion_params: {}
+            mode: chat
+            name: glm-4-0520
+            provider: zhipuai
+        title: 知识检索
+        type: knowledge-retrieval
+      height: 92
+      id: '1724998514487'
+      position:
+        x: 379.02464453847244
+        y: 282
+      positionAbsolute:
+        x: 379.02464453847244
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        cases:
+        - case_id: 'true'
+          conditions:
+          - comparison_operator: not empty
+            id: 32fe503d-7c6b-409f-a774-21faa770ac61
+            value: ''
+            varType: array[object]
+            variable_selector:
+            - '1724998514487'
+            - result
+          id: 'true'
+          logical_operator: and
+        desc: ''
+        selected: false
+        title: 条件分支
+        type: if-else
+      height: 126
+      id: '1724998546912'
+      position:
+        x: 680
+        y: 282
+      positionAbsolute:
+        x: 680
+        y: 282
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    - data:
+        answer: 超出我的认知了，要不换个话题吧！
+        desc: ''
+        selected: false
+        title: 没有找到答案
+        type: answer
+        variables: []
+      height: 100
+      id: '1724998585026'
+      position:
+        x: 980
+        y: 419
+      positionAbsolute:
+        x: 980
+        y: 419
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+    viewport:
+      x: -534.8113389168434
+      y: 11.423294244965291
+      zoom: 0.7071067811865478
