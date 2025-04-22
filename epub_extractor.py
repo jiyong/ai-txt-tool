@@ -33,7 +33,7 @@ def get_product_id(filename):
         return match.group(1)
     return None
 
-def process_epub_file(epub_path, output_dir, image_dir):
+def process_epub_file(epub_path, output_dir, image_dir, product_code=None):
     """
     处理单个EPUB文件
     
@@ -41,6 +41,7 @@ def process_epub_file(epub_path, output_dir, image_dir):
         epub_path: EPUB文件路径
         output_dir: 输出目录
         image_dir: 图片目录
+        product_code: 指定的产品编号，如果为None则从文件名解析
         
     Returns:
         是否处理成功
@@ -50,29 +51,27 @@ def process_epub_file(epub_path, output_dir, image_dir):
         print(f"  epub_path: {epub_path}")
         print(f"  output_dir: {output_dir}")
         print(f"  image_dir: {image_dir}")
+        print(f"  product_code: {product_code}")
         
         # 转换为Path对象
         epub_path = Path(epub_path)
         output_dir = Path(output_dir)
         image_dir = Path(image_dir)
         
-        print(f"process_epub_file 转换后的Path对象:")
-        print(f"  epub_path: {epub_path}")
-        print(f"  output_dir: {output_dir}")
-        print(f"  image_dir: {image_dir}")
-        
         # 获取文件名（不含扩展名）
         filename = epub_path.stem
         print(f"  filename: {filename}")
         
-        # 提取产品编号
-        product_id = get_product_id(filename)
-        if not product_id:
-            print(f"警告: 无法从文件名 {filename} 中提取产品编号")
+        # 获取产品编号（优先使用指定的产品编号）
+        file_product_id = get_product_id(filename)
+        used_product_id = product_code if product_code else file_product_id
+        
+        if not used_product_id:
+            print(f"警告: 无法获取有效的产品编号")
             return False
             
-        # 生成输出文件名（去除产品编号后的空格）
-        output_filename = re.sub(r'(\d{6}-\d{2})\s+', r'\1', filename) + '.md'
+        # 生成新的输出文件名格式：product_code.epub.md
+        output_filename = f"{used_product_id}.epub.md"
         output_path = output_dir / output_filename
         
         print(f"process_epub_file 处理结果:")
@@ -80,7 +79,7 @@ def process_epub_file(epub_path, output_dir, image_dir):
         print(f"  output_path: {output_path}")
         
         # 提取内容
-        result = extract_content_from_epub(str(epub_path), str(output_path), str(image_dir)) is not None
+        result = extract_content_from_epub(str(epub_path), str(output_path), str(image_dir), used_product_id) is not None
         print(f"  extract_content_from_epub 结果: {result}")
         return result
         
@@ -132,7 +131,7 @@ def process_single_book(product_code):
             print(f"目标目录: {markdown_dir}")
             print(f"图片目录: {image_dir}")
             
-            if process_epub_file(str(epub_file), str(markdown_dir), str(image_dir)):
+            if process_epub_file(str(epub_file), str(markdown_dir), str(image_dir), product_code):
                 print(f"成功处理: {epub_file.name}")
             else:
                 print(f"处理失败: {epub_file.name}")
@@ -144,45 +143,41 @@ def process_single_book(product_code):
         print(f"处理产品 {product_code} 时出错: {str(e)}")
         return False
 
-def process_books(src_dir, output_dir):
+def process_books(src_dir, output_dir, product_code=None):
     """
-    处理src目录下的所有二级目录中的EPUB文件
+    处理src目录下的EPUB文件
     
     Args:
         src_dir: 源目录
         output_dir: 输出根目录
+        product_code: 指定的产品编号，如果为None则从文件名解析
     """
     # 确保输出目录存在
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(os.path.join(output_dir, 'images'), exist_ok=True)
-    os.makedirs(os.path.join(output_dir, 'markdown'), exist_ok=True)
+    os.makedirs(os.path.join(output_dir, 'epub'), exist_ok=True)
     
-    # 遍历src目录下的所有二级目录
+    # 遍历src目录下的所有文件
     for root, dirs, files in os.walk(src_dir):
-        # 只处理二级目录
-        if root == src_dir:
-            continue
-            
-        # 获取二级目录名
-        subdir = os.path.basename(root)
-        
-        # 处理该目录下的所有EPUB文件
         for file in files:
             if file.lower().endswith('.epub'):
                 epub_path = os.path.join(root, file)
                 
-                # 获取产品编号
-                product_id = get_product_id(file)
-                if not product_id:
-                    print(f"警告: 跳过文件 {file}，无法提取产品编号")
+                # 获取产品编号（优先使用指定的产品编号）
+                file_product_id = get_product_id(file)
+                used_product_id = product_code if product_code else file_product_id
+                
+                if not used_product_id:
+                    print(f"警告: 跳过文件 {file}，无法获取有效的产品编号")
                     continue
                 
                 # 设置输出目录和图片目录
-                markdown_dir = os.path.join(output_dir, 'markdown', product_id)
-                image_dir = os.path.join(output_dir, 'images', product_id)
+                epub_dir = os.path.join(output_dir, 'epub')
+                image_dir = os.path.join(output_dir, 'images')
                 
                 print(f"正在处理: {epub_path}")
-                if process_epub_file(epub_path, markdown_dir, image_dir):
+                print(f"使用产品编号: {used_product_id}")
+                if process_epub_file(epub_path, epub_dir, image_dir, used_product_id):
                     print(f"成功处理: {file}")
                 else:
                     print(f"处理失败: {file}")
@@ -244,7 +239,7 @@ def get_first_line_content(markdown_path):
         print(f"读取Markdown文件时出错: {str(e)}")
         return None
 
-def extract_content_from_epub(epub_path, output_path=None, image_dir=None):
+def extract_content_from_epub(epub_path, output_path=None, image_dir=None, product_code=None):
     """
     从EPUB文件中提取内容并转换为Markdown格式
     
@@ -252,6 +247,7 @@ def extract_content_from_epub(epub_path, output_path=None, image_dir=None):
         epub_path: EPUB文件的路径
         output_path: 输出Markdown文件的路径，如果未提供则使用EPUB文件名作为基础
         image_dir: 图片保存目录，如果未提供则使用输出文件名作为基础创建一个目录
+        product_code: 指定的产品编号，如果为None则从文件名解析
     
     Returns:
         提取的内容写入Markdown文件，图片保存到指定目录，并返回输出文件的路径
@@ -267,6 +263,7 @@ def extract_content_from_epub(epub_path, output_path=None, image_dir=None):
     print(f"  epub_path: {epub_path}")
     print(f"  output_path: {output_path}")
     print(f"  image_dir: {image_dir}")
+    print(f"  product_code: {product_code}")
     
     if not epub_path.exists():
         print(f"错误: 文件 '{epub_path}' 不存在")
@@ -274,12 +271,18 @@ def extract_content_from_epub(epub_path, output_path=None, image_dir=None):
     
     if not output_path:
         output_path = epub_path.with_suffix(".md")
+        
+    # 确保输出目录存在
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image_dir.mkdir(parents=True, exist_ok=True)
     
-    # 获取产品编号（用于构建图片路径前缀）
+    # 获取产品编号（优先使用指定的产品编号）
     filename = epub_path.name
-    product_id = get_product_id(filename)
-    if not product_id:
-        print(f"警告: 无法从文件名 {filename} 中提取产品编号")
+    file_product_id = get_product_id(filename)
+    used_product_id = product_code if product_code else file_product_id
+    
+    if not used_product_id:
+        print(f"警告: 无法获取有效的产品编号")
         return None
     
     print(f"extract_content_from_epub 处理结果:")
@@ -369,8 +372,8 @@ def extract_content_from_epub(epub_path, output_path=None, image_dir=None):
                     with open(save_path, 'wb') as img_file:
                         img_file.write(epub.read(image_path))
                     
-                    # 构建带前缀的图片路径
-                    prefixed_path = f"/books/images/{product_id}/{new_image_name}"
+                    # 构建带前缀的图片路径（使用指定的产品编号）
+                    prefixed_path = f"/books/{used_product_id}/images/{new_image_name}"
                     
                     # 记录图片ID到保存路径的映射
                     image_map[os.path.basename(image_href)] = prefixed_path
@@ -407,8 +410,8 @@ def extract_content_from_epub(epub_path, output_path=None, image_dir=None):
             # 生成DSL文件
             template_path = 'template/dsl.template.yml'
             books_dir = os.path.dirname(os.path.dirname(os.path.dirname(output_path)))  # 获取books目录
-            dsl_dir = os.path.join(books_dir, 'dsl', product_id)
-            dsl_path = os.path.join(dsl_dir, f'{product_id}.dsl.yml')
+            dsl_dir = os.path.join(books_dir, 'dsl', used_product_id)
+            dsl_path = os.path.join(dsl_dir, f'{used_product_id}.dsl.yml')
             
             # 获取meta.name（第一行内容或文件名）
             meta_name = get_first_line_content(output_path)
@@ -484,13 +487,28 @@ def convert_html_to_markdown(epub, opf_dir, file_path, markdown_content, image_m
 
 def main():
     parser = argparse.ArgumentParser(description='提取EPUB文件中的内容并转换为Markdown格式')
-    parser.add_argument('--src', default='src', help='源目录路径，包含EPUB文件的二级目录')
+    parser.add_argument('--src', default='src', help='源目录根路径')
     parser.add_argument('--output', default='output', help='输出根目录路径')
+    parser.add_argument('--product_code', required=True, help='产品编号（例如：100227-01）')
     
     args = parser.parse_args()
     
+    # 根据产品编号构建完整的源目录和输出目录路径
+    src_dir = os.path.join(args.src, args.product_code)
+    output_dir = os.path.join(args.output, args.product_code)
+    
+    print(f"处理参数:")
+    print(f"  产品编号: {args.product_code}")
+    print(f"  源目录: {src_dir}")
+    print(f"  输出目录: {output_dir}")
+    
+    # 检查源目录是否存在
+    if not os.path.exists(src_dir):
+        print(f"错误: 源目录不存在: {src_dir}")
+        sys.exit(1)
+    
     # 处理目录
-    process_books(args.src, args.output)
+    process_books(src_dir, output_dir, args.product_code)
 
 if __name__ == "__main__":
     main() 

@@ -1,54 +1,112 @@
-from fastapi import FastAPI, HTTPException, Header, Depends
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+EPUB内容提取器Web接口
+提供RESTful API接口，用于处理EPUB文件的转换请求
+"""
+
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import subprocess
 import os
-from excel_to_meta import process_book_meta
-from epub_extractor import process_single_book
-from typing import Optional
+from pathlib import Path
+import logging
 
-app = FastAPI(title="图书处理API")
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# API Key验证函数
-async def verify_api_key(authorization: Optional[str] = Header(None)):
-    if not authorization:
-        raise HTTPException(status_code=401, detail="缺少Authorization header")
-    
-    # 检查Authorization header格式
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authorization header格式错误")
-    
-    api_key = authorization.split(" ")[1]
-    if api_key != os.getenv("API_KEY"):
-        raise HTTPException(status_code=401, detail="API Key无效")
-    
-    return api_key
+app = FastAPI(
+    title="EPUB内容提取器",
+    description="提供EPUB文件转换服务的RESTful API接口",
+    version="1.0.0"
+)
 
-class ProcessRequest(BaseModel):
+class ConversionRequest(BaseModel):
     product_code: str
-    file_type: str  # "excel" 或 "epub"
+    src_base: str = "/books/src"
+    output_base: str = "/books/output"
 
-@app.post("/process")
-async def process_files(
-    request: ProcessRequest,
-    api_key: str = Depends(verify_api_key)
-):
+@app.post("/convert")
+async def convert_epub(request: ConversionRequest):
+    """
+    转换指定产品编号的EPUB文件
+    
+    Args:
+        request: 包含产品编号和可选的源目录、输出目录的请求对象
+        
+    Returns:
+        转换结果
+    """
     try:
-        # 构建完整目录路径
-        directory = f"/app/src/{request.product_code}"
+        # 构建命令
+        cmd = [
+            "python3",
+            "epub_extractor.py",
+            "--src", request.src_base,
+            "--output", request.output_base,
+            "--product_code", request.product_code
+        ]
         
-        if not os.path.exists(directory):
-            raise HTTPException(status_code=404, detail=f"目录不存在: {directory}")
+        logger.info(f"开始处理产品: {request.product_code}")
+        logger.info(f"执行命令: {' '.join(cmd)}")
         
-        if request.file_type == "excel":
-            process_book_meta(request.product_code)
-        elif request.file_type == "epub":
-            process_single_book(request.product_code)
-        else:
-            raise HTTPException(status_code=400, detail="不支持的文件类型")
+        # 检查源目录是否存在
+        src_dir = os.path.join(request.src_base, request.product_code)
+        if not os.path.exists(src_dir):
+            raise HTTPException(
+                status_code=404,
+                detail=f"源目录不存在: {src_dir}"
+            )
         
-        return {"status": "success", "message": "处理完成", "directory": directory}
+        # 执行转换命令
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # 检查输出目录
+        output_dir = os.path.join(request.output_base, request.product_code)
+        epub_dir = os.path.join(output_dir, "epub")
+        images_dir = os.path.join(output_dir, "images")
+        
+        # 检查输出文件
+        if not (os.path.exists(epub_dir) and os.path.exists(images_dir)):
+            raise HTTPException(
+                status_code=500,
+                detail="转换过程完成，但未生成预期的输出文件"
+            )
+            
+        return {
+            "status": "success",
+            "product_code": request.product_code,
+            "message": "转换成功",
+            "output_dir": output_dir,
+            "details": {
+                "stdout": result.stdout,
+                "stderr": result.stderr
+            }
+        }
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"转换失败: {e.stderr}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"转换过程失败: {e.stderr}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"处理请求时出错: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"处理请求时出错: {str(e)}"
+        )
 
-@app.get("/health")
-async def health_check(api_key: str = Depends(verify_api_key)):
-    return {"status": "healthy"} 
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
