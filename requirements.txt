@@ -1,5 +1,5 @@
-beautifulsoup4==4.12.2
-html2text==2024.2.26
+beautifulsoup4>=4.9.3
+html2text>=2020.1.16
 pandas>=2.0.0
 openpyxl>=3.1.0  # 用于读取xlsx文件
 fastapi>=0.109.0

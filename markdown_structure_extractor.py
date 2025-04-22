@@ -15,9 +15,10 @@ from pathlib import Path
 import argparse
 
 class MarkdownNode:
-    def __init__(self, title="", level=0):
+    def __init__(self, title="", level=0, content=""):
         self.title = title
         self.level = level
+        self.content = content
         self.children = []
         self.id = str(uuid.uuid4())  # 生成唯一ID
     
@@ -30,32 +31,46 @@ class MarkdownNode:
             "style": {"collapsed": False} if self.level == 0 else {"collapsed": True},
             "children": []
         }
+        if self.content:
+            result["content"] = self.content
         if self.children:
             result["children"] = [child.to_dict() for child in self.children]
         return result
 
-def extract_headers(markdown_content):
+def extract_headers_and_content(markdown_content):
     """
-    从Markdown内容中提取所有标题
+    从Markdown内容中提取所有标题及其内容
     
     Args:
         markdown_content: Markdown文本内容
         
     Returns:
-        标题列表，每个元素是(level, title)的元组
+        标题列表，每个元素是(level, title, content)的元组
     """
-    # 匹配Markdown标题的正则表达式（更新以处理更多情况）
+    # 匹配Markdown标题的正则表达式
     header_pattern = re.compile(r'^(#{1,6})\s+([^#\n]+?)(?:\s*\[.*\].*)?$', re.MULTILINE)
     headers = []
     
-    for match in header_pattern.finditer(markdown_content):
-        level = len(match.group(1))  # #的数量表示层级
-        title = match.group(2).strip()
-        # 移除可能的链接标记和其他标记
-        title = re.sub(r'\[([^\]]+)\].*', r'\1', title)
-        title = re.sub(r'[*_`]', '', title)  # 移除强调标记
-        if not title.startswith('!'):  # 只添加非图片标题
-            headers.append((level, title))
+    # 将内容按标题分割
+    sections = header_pattern.split(markdown_content)
+    current_level = 0
+    current_title = ""
+    
+    for i in range(1, len(sections), 3):
+        if i + 1 < len(sections):
+            level = len(sections[i])  # #的数量表示层级
+            title = sections[i + 1].strip()
+            # 移除可能的链接标记和其他标记
+            title = re.sub(r'\[([^\]]+)\].*', r'\1', title)
+            title = re.sub(r'[*_`]', '', title)  # 移除强调标记
+            
+            # 获取该标题下的内容（直到下一个标题）
+            content = ""
+            if i + 2 < len(sections):
+                content = sections[i + 2].strip()
+            
+            if not title.startswith('!'):  # 只添加非图片标题
+                headers.append((level, title, content))
     
     return headers
 
@@ -64,7 +79,7 @@ def build_hierarchy(headers):
     根据标题列表构建层级结构
     
     Args:
-        headers: 标题列表，每个元素是(level, title)的元组
+        headers: 标题列表，每个元素是(level, title, content)的元组
         
     Returns:
         根节点
@@ -74,14 +89,14 @@ def build_hierarchy(headers):
     root = MarkdownNode("root", 0)
     stack = [(root, 0)]  # 使用元组存储(节点, 层级)
     
-    for level, title in headers:
+    for level, title, content in headers:
         # 跳过包含感叹号的标题
         if '!' in title:
             print(f"跳过标题: {title}")
             continue
             
         print(f"\n处理标题: {title} (level: {level})")
-        node = MarkdownNode(title, level)
+        node = MarkdownNode(title, level, content)
         
         # 回溯到合适的父节点
         while len(stack) > 1 and stack[-1][1] >= level:
@@ -121,12 +136,14 @@ def process_markdown_file(markdown_path, output_path=None, root_name=None):
         with open(markdown_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # 提取标题
-        headers = extract_headers(content)
+        # 提取标题和内容
+        headers = extract_headers_and_content(content)
         print(f"\n找到 {len(headers)} 个标题")
         print("\n提取的标题:")
-        for level, title in headers:
+        for level, title, content in headers:
             print(f"{'  ' * (level-1)}- {title} (level: {level})")
+            if content:
+                print(f"{'  ' * (level-1)}  内容长度: {len(content)} 字符")
         
         # 构建层级结构
         root = build_hierarchy(headers)
@@ -137,6 +154,8 @@ def process_markdown_file(markdown_path, output_path=None, root_name=None):
         print("\n构建的层级结构:")
         def print_node(node, depth=0):
             print(f"{'  ' * depth}- {node.title} (level: {node.level}, children: {len(node.children)})")
+            if node.content:
+                print(f"{'  ' * (depth + 1)}内容长度: {len(node.content)} 字符")
             for child in node.children:
                 print_node(child, depth + 1)
         print_node(root)
