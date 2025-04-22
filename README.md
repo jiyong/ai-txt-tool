@@ -121,3 +121,88 @@ curl -X POST http://localhost:8000/convert \
 pip install -r requirements.txt
 ```
 
+# Excel元数据提取功能
+
+除了EPUB内容提取功能外，本工具还提供了Excel元数据提取和清理功能。
+
+## Excel元数据提取功能特点
+
+- 支持多种Excel格式：
+  - 简单格式（2行数据）：第一行是属性，第二行是值
+  - 带标题的简单格式（3行数据）：第一行是标题，第二行是属性，第三行是值
+  - 新格式（4行数据）：第1行是属性，第4行是值
+  - 旧格式（4行数据）：第3行是属性，第4行是值
+  - 带示例的新格式（5行数据）：第1行是属性，第2行是示例，第3行是提示，第4行是空行，第5行是值
+
+- 自动清理属性名：
+  - 移除括号及其内容
+  - 移除括号后的说明文字
+  - 处理半个括号的情况
+  - 移除"另附"等额外说明
+  - 处理带冒号的说明文字
+
+- 保留值的原始内容：
+  - 不处理值的内容
+  - 保持长文本的完整性
+  - 只进行基本的空值处理
+
+## Excel元数据提取使用方法
+
+### 命令行方式
+
+```bash
+python excel_to_meta.py --src <源目录> --output <输出目录> --product_code <产品编号>
+```
+
+参数说明：
+- `--src`：源Excel文件所在的基础目录
+- `--output`：输出目录
+- `--product_code`：图书产品编号
+
+示例：
+```bash
+python excel_to_meta.py --src /Users/qu/books/src --output /Users/qu/books/output --product_code 109707-01
+```
+
+### API接口方式
+
+通过 `app.py` 提供的API接口调用：
+
+```python
+from app import process_metadata
+
+# 处理单个产品的元数据
+result = process_metadata(
+    src_path="/Users/qu/books/src",
+    output_path="/Users/qu/books/output",
+    product_code="109707-01"
+)
+```
+
+## Excel元数据提取输出结果
+
+程序会在指定的输出目录下创建对应的元数据文件：
+- 输出路径：`<output_path>/<product_code>/meta/<product_code>.meta.xlsx`
+- 文件格式：Excel文件，包含清理后的属性名和原始值
+
+## Excel元数据提取注意事项
+
+1. 确保源目录中存在对应的Excel文件
+2. 确保有足够的权限访问源目录和输出目录
+3. 输出目录会自动创建（如果不存在）
+4. 如果输出文件已存在，会被覆盖
+
+## 依赖项
+
+- Python 3.6+
+- FastAPI
+- uvicorn
+- beautifulsoup4
+- html2text
+
+## 安装依赖
+
+```bash
+pip install -r requirements.txt
+```
+

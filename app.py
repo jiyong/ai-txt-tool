@@ -2,14 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-EPUB内容提取器Web接口
-提供RESTful API接口，用于处理EPUB文件的转换请求
+EPUB内容提取器和Excel元数据提取器Web接口
+提供RESTful API接口，用于处理EPUB文件的转换请求和Excel元数据的提取请求
 """
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 import subprocess
 import os
+import excel_to_meta
+import uvicorn
 from pathlib import Path
 import logging
 
@@ -21,8 +24,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="EPUB内容提取器",
-    description="提供EPUB文件转换服务的RESTful API接口",
+    title="EPUB内容提取器和Excel元数据提取器",
+    description="提供EPUB文件转换和Excel元数据提取的RESTful API接口",
     version="1.0.0"
 )
 
@@ -30,6 +33,11 @@ class ConversionRequest(BaseModel):
     product_code: str
     src_base: str = "/books/src"
     output_base: str = "/books/output"
+
+class MetadataRequest(BaseModel):
+    product_code: str
+    src_base: Optional[str] = "/Users/qu/books/src"
+    output_base: Optional[str] = "/Users/qu/books/output"
 
 @app.post("/convert")
 async def convert_epub(request: ConversionRequest):
@@ -107,6 +115,41 @@ async def convert_epub(request: ConversionRequest):
             detail=f"处理请求时出错: {str(e)}"
         )
 
+@app.post("/process_metadata")
+async def process_metadata(request: MetadataRequest):
+    """
+    处理指定产品的Excel元数据
+    
+    参数:
+    - product_code: 产品编号
+    - src_base: 源目录根路径（可选）
+    - output_base: 输出目录根路径（可选）
+    
+    返回:
+    - 处理结果信息
+    """
+    try:
+        # 调用excel_to_meta.py中的处理函数
+        excel_to_meta.process_excel_file(
+            src_path=request.src_base,
+            output_path=request.output_base,
+            product_code=request.product_code
+        )
+        
+        # 构建输出文件路径
+        output_file = Path(request.output_base) / request.product_code / "meta" / f"{request.product_code}.meta.xlsx"
+        
+        return {
+            "status": "success",
+            "message": "元数据处理成功",
+            "product_code": request.product_code,
+            "output_file": str(output_file)
+        }
+        
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000) 
