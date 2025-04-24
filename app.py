@@ -31,8 +31,10 @@ app = FastAPI(
 
 class ConversionRequest(BaseModel):
     product_code: str
-    src_base: str = "/books/src"
-    output_base: str = "/books/output"
+    src_file: str
+    output_file: str
+    img_dir: str
+    md_img_dir: str
 
 class MetadataRequest(BaseModel):
     product_code: str
@@ -42,10 +44,10 @@ class MetadataRequest(BaseModel):
 @app.post("/convert")
 async def convert_epub(request: ConversionRequest):
     """
-    转换指定产品编号的EPUB文件
+    转换指定的EPUB文件
     
     Args:
-        request: 包含产品编号和可选的源目录、输出目录的请求对象
+        request: 包含产品编号、源文件路径、输出文件路径、图片存储路径和Markdown图片引用路径的请求对象
         
     Returns:
         转换结果
@@ -55,21 +57,29 @@ async def convert_epub(request: ConversionRequest):
         cmd = [
             "python3",
             "epub_extractor.py",
-            "--src", request.src_base,
-            "--output", request.output_base,
+            "--src", request.src_file,
+            "--output", request.output_file,
+            "--img-dir", request.img_dir,
+            "--md-img-dir", request.md_img_dir,
             "--product_code", request.product_code
         ]
         
         logger.info(f"开始处理产品: {request.product_code}")
         logger.info(f"执行命令: {' '.join(cmd)}")
         
-        # 检查源目录是否存在
-        src_dir = os.path.join(request.src_base, request.product_code)
-        if not os.path.exists(src_dir):
+        # 检查源文件是否存在
+        if not os.path.exists(request.src_file):
             raise HTTPException(
                 status_code=404,
-                detail=f"源目录不存在: {src_dir}"
+                detail=f"源文件不存在: {request.src_file}"
             )
+        
+        # 确保输出目录存在
+        output_dir = os.path.dirname(request.output_file)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 确保图片目录存在
+        os.makedirs(request.img_dir, exist_ok=True)
         
         # 执行转换命令
         result = subprocess.run(
@@ -79,13 +89,8 @@ async def convert_epub(request: ConversionRequest):
             check=True
         )
         
-        # 检查输出目录
-        output_dir = os.path.join(request.output_base, request.product_code)
-        epub_dir = os.path.join(output_dir, "epub")
-        images_dir = os.path.join(output_dir, "images")
-        
         # 检查输出文件
-        if not (os.path.exists(epub_dir) and os.path.exists(images_dir)):
+        if not os.path.exists(request.output_file):
             raise HTTPException(
                 status_code=500,
                 detail="转换过程完成，但未生成预期的输出文件"
@@ -95,7 +100,9 @@ async def convert_epub(request: ConversionRequest):
             "status": "success",
             "product_code": request.product_code,
             "message": "转换成功",
-            "output_dir": output_dir,
+            "output_file": request.output_file,
+            "img_dir": request.img_dir,
+            "md_img_dir": request.md_img_dir,
             "details": {
                 "stdout": result.stdout,
                 "stderr": result.stderr
