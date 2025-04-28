@@ -6,15 +6,20 @@ EPUB内容提取器和Excel元数据提取器Web接口
 提供RESTful API接口，用于处理EPUB文件的转换请求和Excel元数据的提取请求
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional
-import subprocess
 import os
 import excel_to_meta
+import epub_to_md
+import md_to_json_structure
+import text_keywords
+from typing import Optional, Dict, Any, Union
 import uvicorn
 from pathlib import Path
 import logging
+import tempfile
 
 # 配置日志
 logging.basicConfig(
@@ -29,134 +34,283 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# API密钥验证
+async def verify_api_key(authorization: str = Header(...)):
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "status": "error",
+                "message": "无效的认证格式",
+                "code": "INVALID_AUTH_FORMAT"
+            }
+        )
+    
+    api_key = authorization.split(" ")[1]
+    if api_key != os.getenv("API_KEY"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "status": "error",
+                "message": "无效的API密钥",
+                "code": "INVALID_API_KEY"
+            }
+        )
+    
+    return api_key
+
+# 请求模型
 class ConversionRequest(BaseModel):
     product_code: str
-    src_file: str
-    output_file: str
-    img_dir: str
-    md_img_dir: str
+    src: str
+    md_img_dir: Optional[str] = None
+    save: Optional[bool] = False
 
-class MetadataRequest(BaseModel):
+class MarkdownStructureRequest(BaseModel):
     product_code: str
-    src_base: Optional[str] = "/Users/qu/books/src"
-    output_base: Optional[str] = "/Users/qu/books/output"
+    src: str
+    save: Optional[bool] = False
 
-@app.post("/convert")
-async def convert_epub(request: ConversionRequest):
+class KeywordsRequest(BaseModel):
+    text: str
+    topk: Optional[int] = 10
+
+# 统一响应格式
+def create_response(
+    status: str,
+    message: str,
+    data: Optional[Union[Dict[str, Any], str]] = None,
+    code: Optional[str] = None
+) -> Dict[str, Any]:
+    response = {
+        "status": status,
+        "message": message
+    }
+    if data is not None:
+        response["data"] = data
+    if code is not None:
+        response["code"] = code
+    return response
+
+# 健康检查接口
+@app.get("/health")
+async def health_check():
+    return create_response(
+        status="success",
+        message="服务正常运行",
+        data={"version": "1.0.0"}
+    )
+
+# EPUB转换接口
+@app.post("/epub-to-md")
+async def convert_epub(request: ConversionRequest, api_key: str = Depends(verify_api_key)):
+    try:
+        result = epub_to_md.extract_content_from_epub(
+            request.src,
+            request.product_code,
+            request.md_img_dir,
+            request.save
+        )
+        return create_response(
+            status="success",
+            message="EPUB转换成功",
+            data={
+                "product_code": request.product_code,
+                "content": result,
+                "output_file": f"./data/{request.product_code}/epub/{request.product_code}.epub.md" if request.save else None,
+                "img_dir": f"./data/{request.product_code}/images/" if request.save else None
+            }
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=create_response(
+                status="error",
+                message=f"文件不存在: {str(e)}",
+                code="FILE_NOT_FOUND"
+            )
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=create_response(
+                status="error",
+                message=f"处理请求时出错: {str(e)}",
+                code="INTERNAL_SERVER_ERROR"
+            )
+        )
+
+# EPUB文件上传接口
+@app.post("/epub-to-md/file")
+async def convert_epub_file(
+    file: UploadFile = File(...),
+    product_code: str = Form(...),
+    save: bool = Form(False),
+    api_key: str = Depends(verify_api_key)
+):
+    try:
+        # 保存上传的文件
+        temp_file_path = f"/tmp/{file.filename}"
+        with open(temp_file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # 处理文件
+        result = epub_to_md.extract_content_from_epub(
+            temp_file_path,
+            product_code,
+            None,
+            save
+        )
+        
+        # 删除临时文件
+        os.remove(temp_file_path)
+        
+        return create_response(
+            status="success",
+            message="EPUB转换成功",
+            data={
+                "product_code": product_code,
+                "content": result,
+                "output_file": f"./data/{product_code}/epub/{product_code}.epub.md" if save else None,
+                "img_dir": f"./data/{product_code}/images/" if save else None
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=create_response(
+                status="error",
+                message=f"处理请求时出错: {str(e)}",
+                code="INTERNAL_SERVER_ERROR"
+            )
+        )
+
+# Markdown结构提取接口
+@app.post("/md-to-structure")
+async def extract_structure(request: MarkdownStructureRequest, api_key: str = Depends(verify_api_key)):
+    try:
+        result = md_to_json_structure.extract_markdown_structure(
+            request.src,
+            request.product_code,
+            request.save
+        )
+        return create_response(
+            status="success",
+            message="Markdown结构提取成功",
+            data={
+                "product_code": request.product_code,
+                "content": result,
+                "output_file": f"./data/{request.product_code}/structure/{request.product_code}.structure.json" if request.save else None
+            }
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=create_response(
+                status="error",
+                message=f"文件不存在: {str(e)}",
+                code="FILE_NOT_FOUND"
+            )
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=create_response(
+                status="error",
+                message=f"处理请求时出错: {str(e)}",
+                code="INTERNAL_SERVER_ERROR"
+            )
+        )
+
+# Excel元数据提取接口
+@app.post("/excel-to-meta")
+async def extract_metadata(
+    file: UploadFile = File(...),
+    product_code: str = Form(...),
+    api_key: str = Depends(verify_api_key)
+):
+    try:
+        # 保存上传的文件
+        temp_file_path = f"/tmp/{file.filename}"
+        with open(temp_file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # 处理文件
+        result = excel_to_meta.extract_metadata_from_excel(temp_file_path, product_code)
+        
+        # 删除临时文件
+        os.remove(temp_file_path)
+        
+        return create_response(
+            status="success",
+            message="Excel元数据提取成功",
+            data={
+                "product_code": product_code,
+                "content": result,
+                "output_file": f"./data/{product_code}/meta/{product_code}.meta.xlsx"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=create_response(
+                status="error",
+                message=f"处理请求时出错: {str(e)}",
+                code="INTERNAL_SERVER_ERROR"
+            )
+        )
+
+# 关键词提取接口
+@app.post("/extract-keywords", status_code=200)
+async def extract_keywords(request: KeywordsRequest, api_key: str = Depends(verify_api_key)):
     """
-    转换指定的EPUB文件
+    从文本中提取关键词
     
     Args:
-        request: 包含产品编号、源文件路径、输出文件路径、图片存储路径和Markdown图片引用路径的请求对象
+        request: 包含文本内容和关键词数量的请求对象
+        api_key: API密钥
         
     Returns:
-        转换结果
+        包含关键词列表的响应对象
     """
     try:
-        # 构建命令
-        cmd = [
-            "python3",
-            "epub_extractor.py",
-            "--src", request.src_file,
-            "--output", request.output_file,
-            "--img-dir", request.img_dir,
-            "--md-img-dir", request.md_img_dir,
-            "--product_code", request.product_code
-        ]
+        # 提取关键词
+        keywords = text_keywords.extract_keywords(request.text, request.topk)
         
-        logger.info(f"开始处理产品: {request.product_code}")
-        logger.info(f"执行命令: {' '.join(cmd)}")
-        
-        # 检查源文件是否存在
-        if not os.path.exists(request.src_file):
-            raise HTTPException(
-                status_code=404,
-                detail=f"源文件不存在: {request.src_file}"
-            )
-        
-        # 确保输出目录存在
-        output_dir = os.path.dirname(request.output_file)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # 确保图片目录存在
-        os.makedirs(request.img_dir, exist_ok=True)
-        
-        # 执行转换命令
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
-        # 检查输出文件
-        if not os.path.exists(request.output_file):
-            raise HTTPException(
-                status_code=500,
-                detail="转换过程完成，但未生成预期的输出文件"
-            )
-            
         return {
             "status": "success",
-            "product_code": request.product_code,
-            "message": "转换成功",
-            "output_file": request.output_file,
-            "img_dir": request.img_dir,
-            "md_img_dir": request.md_img_dir,
-            "details": {
-                "stdout": result.stdout,
-                "stderr": result.stderr
+            "message": "关键词提取成功",
+            "data": {
+                "keywords": [
+                    {
+                        "word": word,
+                        "weight": round(weight, 4)  # 保留4位小数
+                    } for word, weight in keywords
+                ],
+                "total": len(keywords),
+                "topk": request.topk
             }
         }
-        
-    except subprocess.CalledProcessError as e:
-        logger.error(f"转换失败: {e.stderr}")
+    except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"转换过程失败: {e.stderr}"
+            detail={
+                "status": "error",
+                "message": f"处理文本时出错: {str(e)}",
+                "code": "PROCESSING_ERROR"
+            }
         )
-    except Exception as e:
-        logger.error(f"处理请求时出错: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"处理请求时出错: {str(e)}"
-        )
-
-@app.post("/process_metadata")
-async def process_metadata(request: MetadataRequest):
-    """
-    处理指定产品的Excel元数据
-    
-    参数:
-    - product_code: 产品编号
-    - src_base: 源目录根路径（可选）
-    - output_base: 输出目录根路径（可选）
-    
-    返回:
-    - 处理结果信息
-    """
-    try:
-        # 调用excel_to_meta.py中的处理函数
-        excel_to_meta.process_excel_file(
-            src_path=request.src_base,
-            output_path=request.output_base,
-            product_code=request.product_code
-        )
-        
-        # 构建输出文件路径
-        output_file = Path(request.output_base) / request.product_code / "meta" / f"{request.product_code}.meta.xlsx"
-        
-        return {
-            "status": "success",
-            "message": "元数据处理成功",
-            "product_code": request.product_code,
-            "output_file": str(output_file)
-        }
-        
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000) 

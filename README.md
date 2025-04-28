@@ -9,6 +9,7 @@
 - 支持命令行操作和Web API接口
 - 自动创建输出目录结构
 - 支持批量处理
+- 支持多种输入方式：本地文件、网络URL、文件上传
 
 ## 目录结构
 
@@ -33,23 +34,28 @@
 ### 基本用法
 
 ```bash
-python epub_extractor.py --src <源目录> --output <输出目录> --product_code <产品编号>
+python epub_to_md.py --src <EPUB文件路径或URL> --product_code <产品编号> --md_img_dir <图片引用路径> [--save]
 ```
 
 ### 参数说明
 
-- `--src`: 源目录根路径，默认为 'src'
-- `--output`: 输出目录根路径，默认为 'output'
+- `--src`: EPUB文件路径或URL
+- `--file`: 上传的EPUB文件
 - `--product_code`: 产品编号（必需），例如：'100227-01'
+- `--md_img_dir`: Markdown文件中图片引用的基础路径
+- `--save`: 是否保存文件（默认为false）
 
 ### 示例
 
 ```bash
-# 使用完整路径
-python epub_extractor.py --src /books/src --output /books/output --product_code 100227-01
+# 使用完整路径，保存文件
+python epub_to_md.py --src /books/src/100227-01/book1.epub --product_code 100227-01 --md_img_dir /books/100227-01/images --save
 
-# 使用相对路径
-python epub_extractor.py --src ./src --output ./output --product_code 100227-01
+# 使用URL，不保存文件
+python epub_to_md.py --src https://example.com/book.epub --product_code 100227-01 --md_img_dir /books/100227-01/images
+
+# 不保存文件，直接返回Markdown内容
+python epub_to_md.py --src /books/src/100227-01/book1.epub --product_code 100227-01 --md_img_dir /books/100227-01/images
 ```
 
 ## Web API 使用
@@ -66,14 +72,15 @@ python app.py
 
 #### 转换EPUB文件
 
-**POST** `/convert`
+**POST** `/epub-to-md`
 
 请求体：
 ```json
 {
     "product_code": "100227-01",
-    "src_base": "/books/src",     // 可选，默认为 "/books/src"
-    "output_base": "/books/output" // 可选，默认为 "/books/output"
+    "src": "/path/to/book.epub",
+    "md_img_dir": "/books/100227-01/images",
+    "save": true
 }
 ```
 
@@ -83,29 +90,64 @@ python app.py
     "status": "success",
     "product_code": "100227-01",
     "message": "转换成功",
-    "output_dir": "/books/output/100227-01",
-    "details": {
-        "stdout": "处理日志输出...",
-        "stderr": ""
-    }
+    "content": "# 书籍标题\n\n**作者：作者名**\n\n...",
+    "output_file": "./data/100227-01/epub/100227-01.epub.md",
+    "img_dir": "./data/100227-01/images/",
+    "md_img_dir": "/books/100227-01/images"
+}
+```
+
+#### 转换EPUB文件（文件上传）
+
+**POST** `/epub-to-md/file`
+
+请求体（表单数据）：
+- `file`: EPUB文件
+- `product_code`: 产品编号
+- `md_img_dir`: Markdown图片引用路径（可选）
+- `save`: 是否保存到文件（默认为false）
+
+响应示例：
+```json
+{
+    "status": "success",
+    "product_code": "100227-01",
+    "message": "转换成功",
+    "content": "# 书籍标题\n\n**作者：作者名**\n\n...",
+    "output_file": "./data/100227-01/epub/100227-01.epub.md",
+    "img_dir": "./data/100227-01/images/",
+    "md_img_dir": "/books/100227-01/images"
 }
 ```
 
 ### 使用curl测试API
 
 ```bash
-curl -X POST http://localhost:8000/convert \
+# 使用文件路径
+curl -X POST "http://localhost:8000/epub-to-md" \
      -H "Content-Type: application/json" \
-     -d '{"product_code": "100227-01"}'
+     -d '{
+         "product_code": "100227-01",
+         "src": "/path/to/book.epub",
+         "save": true
+     }'
+
+# 使用文件上传
+curl -X POST "http://localhost:8000/epub-to-md/file" \
+     -F "file=@/path/to/book.epub" \
+     -F "product_code=100227-01" \
+     -F "save=true"
 ```
 
 ## 注意事项
 
 1. 确保源目录中包含要处理的EPUB文件
 2. 程序会自动创建必要的输出目录结构
-3. 输出的Markdown文件将保存在 `output/产品编号/markdown` 目录下
-4. 提取的图片将保存在 `output/产品编号/images` 目录下
-5. 图片在Markdown中的引用路径格式为 `/books/产品编号/images/图片名称`
+3. 当`save`为`true`时，输出的Markdown文件将保存在 `./data/${product_code}/epub/${product_code}.epub.md`
+4. 当`save`为`true`时，提取的图片将保存在 `./data/${product_code}/images/`
+5. 图片在Markdown中的引用路径格式为 `/books/${product_code}/images/图片名称`
+6. 无论是否设置`save`参数，程序都会返回转换后的Markdown内容
+7. 当`save`为`true`时，响应中会额外包含文件路径信息
 
 ## 依赖项
 
@@ -114,6 +156,7 @@ curl -X POST http://localhost:8000/convert \
 - uvicorn
 - beautifulsoup4
 - html2text
+- requests
 
 ## 安装依赖
 
@@ -205,4 +248,596 @@ result = process_metadata(
 ```bash
 pip install -r requirements.txt
 ```
+
+# EPUB 内容提取器和 Excel 元数据提取器
+
+这是一个基于 FastAPI 的 Web 服务，提供 EPUB 文件转换和 Excel 元数据提取功能。
+
+## 功能特点
+
+1. EPUB 转 Markdown
+   - 将 EPUB 文件转换为 Markdown 格式
+   - 支持图片提取和引用路径配置
+   - 保持文档结构和格式
+   - 支持多种输入方式：本地文件、网络URL、文件上传
+
+2. Markdown 结构提取
+   - 从 Markdown 文件中提取层级结构
+   - 将 Markdown 转换为树状 JSON 数据
+   - 每个节点包含 title/content/children/level 属性
+   - 支持多种输入方式：文件路径、文本内容、上传文件
+
+3. Excel 元数据提取
+   - 从 Excel 文件中提取元数据信息
+   - 支持自定义输入输出路径
+
+## Docker部署
+
+### 1. 环境配置
+
+1. 复制环境变量配置文件：
+```bash
+cp .env.example .env
+```
+
+2. 修改`.env`文件中的配置：
+```bash
+# Docker容器配置
+CONTAINER_NAME=book-processor    # 容器名称
+IMAGE_NAME=book-processor       # 镜像名称
+API_KEY=epub_extractor_key_2024 # API密钥
+HOST_PORT=8000                 # 主机端口
+
+# 目录配置
+BOOKS_SRC_DIR=/path/to/books/src    # 源文件目录
+BOOKS_OUTPUT_DIR=/path/to/books/output  # 输出目录
+BOOKS_DATA_DIR=/path/to/books/data   # 数据目录
+```
+
+### 2. 目录结构
+
+```
+/books
+  /src          # 源文件目录
+    /100227-01
+      - book1.epub
+      - book2.epub
+  /output       # 输出目录
+    /100227-01
+      /markdown
+        - book1.md
+        - book2.md
+      /images
+        - img1.jpg
+        - img2.png
+  /data         # 数据目录
+    /100227-01
+      /epub
+        - 100227-01.epub.md
+      /images
+        - image1.jpg
+        - image2.png
+      /structure
+        - 100227-01.structure.json
+```
+
+### 3. 启动服务
+
+1. 确保Docker已安装并运行
+2. 确保目录结构正确
+3. 运行启动脚本：
+```bash
+./start.sh
+```
+
+### 4. 验证服务
+
+1. 检查容器状态：
+```bash
+docker ps
+```
+
+2. 查看容器日志：
+```bash
+docker logs book-processor
+```
+
+3. 测试健康检查接口：
+```bash
+curl -X GET http://localhost:8000/health
+```
+
+### 5. 停止服务
+
+```bash
+docker stop book-processor
+docker rm book-processor
+```
+
+## API 接口
+
+### 1. EPUB 转 Markdown（旧方法）
+
+```http
+POST /epub-to-md
+```
+
+请求体：
+```json
+{
+    "product_code": "产品编号",
+    "src_file": "源文件路径",
+    "output_file": "输出文件路径",
+    "img_dir": "图片存储路径",
+    "md_img_dir": "Markdown图片引用路径"
+}
+```
+
+### 2. EPUB 转 Markdown（新方法）
+
+```http
+POST /epub-to-md-new
+```
+
+请求体：
+```json
+{
+    "product_code": "产品编号",
+    "src": "源EPUB文件路径或URL",
+    "md_img_dir": "Markdown图片引用路径",
+    "save": true
+}
+```
+
+### 3. EPUB 转 Markdown（文件上传）
+
+```http
+POST /epub-to-md/file
+```
+
+请求体（表单数据）：
+- `file`: EPUB文件
+- `product_code`: 产品编号
+- `md_img_dir`: Markdown图片引用路径（可选）
+- `save`: 是否保存到文件（默认为false）
+
+### 4. Markdown 结构提取
+
+```http
+POST /md-to-structure
+```
+
+请求体：
+```json
+{
+    "product_code": "产品编号",
+    "src": "源 Markdown 文件路径",
+    "text": "Markdown 文本内容",
+    "save": true
+}
+```
+
+注意：`src` 和 `text` 参数只需提供其中一个，优先级为 `text` > `src`。
+
+响应示例：
+```json
+{
+    "status": "success",
+    "message": "层级结构数据提取成功",
+    "data": {
+        "structure": [
+            {
+                "title": "标题1",
+                "content": "内容1",
+                "children": [
+                    {
+                        "title": "子标题1",
+                        "content": "子内容1",
+                        "children": [],
+                        "level": 2
+                    }
+                ],
+                "level": 1
+            }
+        ]
+    },
+    "product_code": "100227-01"
+}
+```
+
+### 5. Markdown 结构提取（文件上传）
+
+```http
+POST /md-to-structure/file
+```
+
+请求体（表单数据）：
+- `file`: Markdown 文件
+- `product_code`: 产品编号
+- `save`: 是否保存到文件（布尔值）
+
+### 6. Excel 元数据提取
+
+```http
+POST /process_metadata
+```
+
+请求体：
+```json
+{
+    "product_code": "产品编号",
+    "src_base": "源目录根路径",
+    "output_base": "输出目录根路径"
+}
+```
+
+## 命令行使用
+
+### EPUB 转 Markdown
+
+```bash
+python epub_to_md.py --src /path/to/book.epub --product_code 100227-01 --save
+```
+
+参数说明：
+- `--src`: EPUB文件路径或URL
+- `--file`: 上传的EPUB文件
+- `--product_code`: 产品编号（必需）
+- `--md_img_dir`: Markdown图片引用路径
+- `--save`: 是否保存到文件（默认为false）
+
+### Markdown 结构提取
+
+```bash
+python md_to_json_structure.py --src /path/to/document.md --product_code 100227-01 --save true
+```
+
+参数说明：
+- `--src`: 源 Markdown 文件路径
+- `--text`: Markdown 文本内容
+- `--file`: MultipartFile 文件
+- `--product_code`: 产品编号（必需）
+- `--save`: 是否保存到文件（默认为 false）
+
+## 安装和运行
+
+1. 安装依赖：
+```bash
+pip install -r requirements.txt
+```
+
+2. 运行服务：
+```bash
+python app.py
+```
+
+服务将在 http://localhost:8000 启动
+
+## 使用示例
+
+1. EPUB 转 Markdown（新方法）：
+```bash
+curl -X POST "http://localhost:8000/epub-to-md-new" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "product_code": "BOOK001",
+         "src": "/path/to/book.epub",
+         "save": true
+     }'
+```
+
+2. EPUB 转 Markdown（文件上传）：
+```bash
+curl -X POST "http://localhost:8000/epub-to-md/file" \
+     -F "file=@/path/to/book.epub" \
+     -F "product_code=BOOK001" \
+     -F "save=true"
+```
+
+3. Markdown 结构提取：
+```bash
+curl -X POST "http://localhost:8000/md-to-structure" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "product_code": "BOOK001",
+         "src": "/path/to/document.md",
+         "save": true
+     }'
+```
+
+4. Markdown 结构提取（文件上传）：
+```bash
+curl -X POST "http://localhost:8000/md-to-structure/file" \
+     -F "file=@/path/to/document.md" \
+     -F "product_code=BOOK001" \
+     -F "save=true"
+```
+
+5. Excel 元数据提取：
+```bash
+curl -X POST "http://localhost:8000/process_metadata" \
+     -H "Content-Type: application/json" \
+     -d '{
+         "product_code": "BOOK001",
+         "src_base": "/path/to/source",
+         "output_base": "/path/to/output"
+     }'
+```
+
+## 注意事项
+
+1. 确保所有路径都是有效的且具有适当的访问权限
+2. 图片目录会自动创建（如果不存在）
+3. 所有 API 都返回 JSON 格式的响应
+4. 错误响应会包含详细的错误信息
+5. 当 `save` 设置为 `true` 时：
+   - EPUB转换结果将保存到 `./data/${product_code}/epub/${product_code}.epub.md`
+   - Markdown结构提取结果将保存到 `./data/${product_code}/json/${product_code}.structure.json`
+   - 图片将保存到 `./data/${product_code}/images/`
+
+## 开发说明
+
+- 使用 FastAPI 框架构建
+- 支持异步处理
+- 包含完整的错误处理
+- 提供详细的日志记录
+
+### 健康检查
+
+```bash
+# 检查服务状态
+curl -X GET http://localhost:8000/health
+```
+
+响应示例：
+```json
+{
+    "status": "success",
+    "message": "服务正常运行",
+    "data": {
+        "version": "1.0.0"
+    }
+}
+```
+
+# EPUB内容提取器和Excel元数据提取器
+
+这是一个用于提取EPUB文件内容和Excel元数据的RESTful API服务。
+
+## 功能特点
+
+- EPUB文件转换为Markdown格式
+- Markdown文件结构提取
+- Excel元数据提取
+- 文本关键词提取
+- 支持文件上传和URL链接
+- 支持保存处理结果到本地文件
+
+## Docker部署
+
+### 1. 环境配置
+
+1. 复制环境变量配置文件：
+```bash
+cp .env.example .env
+```
+
+2. 修改`.env`文件中的配置：
+```bash
+# Docker容器配置
+CONTAINER_NAME=book-processor    # 容器名称
+IMAGE_NAME=book-processor       # 镜像名称
+API_KEY=epub_extractor_key_2024 # API密钥
+HOST_PORT=8000                 # 主机端口
+
+# 目录配置
+BOOKS_SRC_DIR=/path/to/books/src    # 源文件目录
+BOOKS_OUTPUT_DIR=/path/to/books/output  # 输出目录
+BOOKS_DATA_DIR=/path/to/books/data   # 数据目录
+```
+
+### 2. 目录结构
+
+```
+/books
+  /src          # 源文件目录
+    /100227-01
+      - book1.epub
+      - book2.epub
+  /output       # 输出目录
+    /100227-01
+      /markdown
+        - book1.md
+        - book2.md
+      /images
+        - img1.jpg
+        - img2.png
+  /data         # 数据目录
+    /100227-01
+      /epub
+        - 100227-01.epub.md
+      /images
+        - image1.jpg
+        - image2.png
+      /structure
+        - 100227-01.structure.json
+```
+
+### 3. 启动服务
+
+1. 确保Docker已安装并运行
+2. 确保目录结构正确
+3. 运行启动脚本：
+```bash
+./start.sh
+```
+
+### 4. 验证服务
+
+1. 检查容器状态：
+```bash
+docker ps
+```
+
+2. 查看容器日志：
+```bash
+docker logs book-processor
+```
+
+3. 测试健康检查接口：
+```bash
+curl -X GET http://localhost:8000/health
+```
+
+### 5. 停止服务
+
+```bash
+docker stop book-processor
+docker rm book-processor
+```
+
+## API接口
+
+### 健康检查
+
+```bash
+curl -X GET http://localhost:8000/health
+```
+
+示例响应：
+```json
+{
+    "status": "success",
+    "message": "服务正常运行",
+    "data": {
+        "version": "1.0.0"
+    }
+}
+```
+
+### EPUB转换
+
+```bash
+curl -X POST http://localhost:8000/epub-to-md \
+  -H "Authorization: Bearer epub_extractor_key_2024" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_code": "100227-01",
+    "src": "/app/src/100227-01/100227-01工程材料及检测-数字教材.epub",
+    "md_img_dir": "/app/books/100227-01/images",
+    "save": true
+  }'
+```
+
+### EPUB文件上传
+
+```bash
+curl -X POST http://localhost:8000/epub-to-md/file \
+  -H "Authorization: Bearer epub_extractor_key_2024" \
+  -F "file=@/path/to/your/file.epub" \
+  -F "product_code=100227-01" \
+  -F "save=true"
+```
+
+### Markdown结构提取
+
+```bash
+curl -X POST http://localhost:8000/md-to-structure \
+  -H "Authorization: Bearer epub_extractor_key_2024" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_code": "100227-01",
+    "src": "/app/data/100227-01/epub/100227-01.epub.md",
+    "save": true
+  }'
+```
+
+### Excel元数据提取
+
+```bash
+curl -X POST http://localhost:8000/excel-to-meta \
+  -H "Authorization: Bearer epub_extractor_key_2024" \
+  -F "file=@/path/to/your/file.xlsx" \
+  -F "product_code=100227-01"
+```
+
+### 关键词提取
+
+```bash
+curl -X POST http://localhost:8000/extract-keywords \
+  -H "Authorization: Bearer epub_extractor_key_2024" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "这是一段需要提取关键词的文本内容",
+    "topk": 10
+  }'
+```
+
+示例响应：
+```json
+{
+    "status": "success",
+    "message": "关键词提取成功",
+    "data": {
+        "keywords": [
+            {"word": "关键词1", "weight": 0.8},
+            {"word": "关键词2", "weight": 0.6},
+            {"word": "关键词3", "weight": 0.4}
+        ]
+    }
+}
+```
+
+## 环境要求
+
+- Python 3.8+
+- Docker
+
+## 安装和运行
+
+1. 克隆仓库：
+```bash
+git clone <repository_url>
+cd epub-extractor
+```
+
+2. 使用Docker运行：
+```bash
+./start.sh
+```
+
+## 目录结构
+
+```
+.
+├── app.py                 # FastAPI应用主文件
+├── epub_to_md.py         # EPUB转换模块
+├── md_to_json_structure.py # Markdown结构提取模块
+├── excel_to_meta.py      # Excel元数据提取模块
+├── text_keywords.py      # 关键词提取模块
+├── requirements.txt      # Python依赖
+├── Dockerfile           # Docker构建文件
+├── start.sh            # 启动脚本
+└── README.md           # 项目文档
+```
+
+## 注意事项
+
+1. 所有API请求都需要在Header中包含有效的API密钥：
+   ```
+   Authorization: Bearer epub_extractor_key_2024
+   ```
+
+2. 文件路径在容器内部使用，请确保使用正确的容器内路径：
+   - 源文件路径：`/app/src/...`
+   - 输出文件路径：`/app/output/...`
+   - 数据文件路径：`/app/data/...`
+
+3. 使用`save=true`参数可以将处理结果保存到本地文件。
+
+4. 关键词提取支持自定义返回的关键词数量（topk参数）。
+
+5. 确保目录具有正确的读写权限。
+
+6. 首次运行时，Docker会自动创建必要的目录结构。
 

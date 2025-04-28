@@ -16,7 +16,10 @@ import argparse
 import re
 import shutil
 import uuid
+import tempfile
 from pathlib import Path
+import requests
+from io import BytesIO
 
 def get_product_id(filename):
     """
@@ -57,28 +60,39 @@ def get_first_line_content(markdown_path):
         print(f"读取Markdown文件时出错: {str(e)}")
         return None
 
-def extract_content_from_epub(epub_path, output_path=None, image_dir=None, md_img_dir=None, product_code=None):
+def extract_content_from_epub(epub_path, product_code, md_img_dir=None, save=False):
     """
     从EPUB文件中提取内容并转换为Markdown格式
     
     Args:
         epub_path: EPUB文件的路径
-        output_path: 输出Markdown文件的路径
-        image_dir: 图片保存的物理路径
+        product_code: 产品编号
         md_img_dir: Markdown文件中图片引用的基础路径
-        product_code: 指定的产品编号
+        save: 是否保存文件
     
     Returns:
-        提取的内容写入Markdown文件，图片保存到指定目录，并返回输出文件的路径
+        提取的Markdown文本内容
     """
     # 转换为Path对象
     epub_path = Path(epub_path)
-    if output_path:
-        output_path = Path(output_path)
-    if image_dir:
-        image_dir = Path(image_dir)
-    if md_img_dir:
-        md_img_dir = Path(md_img_dir)
+    
+    # 设置输出路径和图片目录
+    if save:
+        output_path = Path(f"./data/{product_code}/epub/{product_code}.epub.md")
+        image_dir = Path(f"./data/{product_code}/images/")
+    else:
+        # 如果不保存，则使用临时目录
+        temp_dir = Path(tempfile.mkdtemp())
+        output_path = temp_dir / f"{product_code}.epub.md"
+        image_dir = temp_dir / "images"
+    
+    # 确保输出目录存在
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 如果没有指定md_img_dir，则使用默认值
+    if not md_img_dir:
+        md_img_dir = f"/books/{product_code}/images"
     
     print(f"extract_content_from_epub 输入参数:")
     print(f"  epub_path: {epub_path}")
@@ -91,27 +105,6 @@ def extract_content_from_epub(epub_path, output_path=None, image_dir=None, md_im
         print(f"错误: 文件 '{epub_path}' 不存在")
         return None
     
-    if not output_path:
-        output_path = epub_path.with_suffix(".md")
-        
-    # 确保输出目录存在
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    image_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 获取产品编号（优先使用指定的产品编号）
-    filename = epub_path.name
-    file_product_id = get_product_id(filename)
-    used_product_id = product_code if product_code else file_product_id
-    
-    if not used_product_id:
-        print(f"警告: 无法获取有效的产品编号")
-        return None
-    
-    print(f"extract_content_from_epub 处理结果:")
-    print(f"  output_path: {output_path}")
-    print(f"  image_dir: {image_dir}")
-    print(f"  md_img_dir: {md_img_dir}")
-
     # 创建html2text转换器实例
     h2t = html2text.HTML2Text()
     h2t.ignore_links = False
@@ -233,7 +226,16 @@ def extract_content_from_epub(epub_path, output_path=None, image_dir=None, md_im
             print(f"内容已成功提取到Markdown文件: {output_path}")
             print(f"图片已保存到目录: {image_dir}")
             print(f"Markdown中的图片引用路径: {md_img_dir}")
-            return output_path
+            
+            # 读取生成的Markdown内容
+            with open(output_path, 'r', encoding='utf-8') as f:
+                markdown_text = f.read()
+            
+            # 如果不保存，则删除临时文件
+            if not save:
+                shutil.rmtree(temp_dir)
+            
+            return markdown_text
             
     except Exception as e:
         print(f"提取过程中出错: {str(e)}")
@@ -290,42 +292,115 @@ def convert_html_to_markdown(epub, opf_dir, file_path, markdown_content, image_m
     except Exception as e:
         print(f"处理文件 {file_path} 时出错: {str(e)}")
 
+def process_epub_file(file_content, product_code, md_img_dir=None, save=False):
+    """
+    处理上传的EPUB文件内容
+    
+    Args:
+        file_content: 上传的EPUB文件内容
+        product_code: 产品编号
+        md_img_dir: Markdown文件中图片引用的基础路径
+        save: 是否保存文件
+    
+    Returns:
+        提取的内容写入Markdown文件，图片保存到指定目录，并返回输出文件的路径
+    """
+    # 创建临时文件
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.epub') as temp_file:
+        temp_file.write(file_content)
+        temp_file_path = temp_file.name
+    
+    try:
+        # 处理EPUB文件
+        result = extract_content_from_epub(temp_file_path, product_code, md_img_dir, save)
+        return result
+    finally:
+        # 删除临时文件
+        os.unlink(temp_file_path)
+
+def process_epub_url(url, product_code, md_img_dir=None, save=False):
+    """
+    处理网络上的EPUB文件
+    
+    Args:
+        url: EPUB文件的URL
+        product_code: 产品编号
+        md_img_dir: Markdown文件中图片引用的基础路径
+        save: 是否保存文件
+    
+    Returns:
+        提取的内容写入Markdown文件，图片保存到指定目录，并返回输出文件的路径
+    """
+    try:
+        # 下载EPUB文件
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.epub') as temp_file:
+            for chunk in response.iter_content(chunk_size=8192):
+                temp_file.write(chunk)
+            temp_file_path = temp_file.name
+        
+        try:
+            # 处理EPUB文件
+            result = extract_content_from_epub(temp_file_path, product_code, md_img_dir, save)
+            return result
+        finally:
+            # 删除临时文件
+            os.unlink(temp_file_path)
+    except Exception as e:
+        print(f"下载或处理URL时出错: {str(e)}")
+        return None
+
 def main():
     parser = argparse.ArgumentParser(description='提取EPUB文件中的内容并转换为Markdown格式')
-    parser.add_argument('--src', required=True, help='输入的EPUB文件路径')
-    parser.add_argument('--output', required=True, help='输出的Markdown文件路径')
-    parser.add_argument('--img-dir', required=True, help='图片存储的物理路径')
-    parser.add_argument('--md-img-dir', required=True, help='Markdown文件中图片引用的基础路径')
+    parser.add_argument('--src', help='输入的EPUB文件路径或URL')
+    parser.add_argument('--file', help='上传的EPUB文件')
     parser.add_argument('--product_code', required=True, help='产品编号（例如：100227-01）')
+    parser.add_argument('--md_img_dir', help='Markdown文件中图片引用的基础路径')
+    parser.add_argument('--save', action='store_true', help='是否保存文件')
     
     args = parser.parse_args()
     
     print(f"处理参数:")
     print(f"  产品编号: {args.product_code}")
     print(f"  输入文件: {args.src}")
-    print(f"  输出文件: {args.output}")
-    print(f"  图片存储路径: {args.img_dir}")
+    print(f"  上传文件: {args.file}")
     print(f"  Markdown图片引用路径: {args.md_img_dir}")
+    print(f"  保存文件: {args.save}")
     
-    # 检查输入文件是否存在
-    if not os.path.exists(args.src):
-        print(f"错误: 输入文件不存在: {args.src}")
+    # 检查输入参数
+    if not args.src and not args.file:
+        print("错误: 必须提供--src或--file参数")
         sys.exit(1)
     
-    # 确保输出目录存在
-    output_dir = os.path.dirname(args.output)
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 确保图片目录存在
-    os.makedirs(args.img_dir, exist_ok=True)
-    
-    # 直接处理单个EPUB文件
-    result = extract_content_from_epub(args.src, args.output, args.img_dir, args.md_img_dir, args.product_code)
+    # 处理EPUB文件
+    if args.src:
+        # 检查是否为URL
+        if args.src.startswith('http://') or args.src.startswith('https://'):
+            result = process_epub_url(args.src, args.product_code, args.md_img_dir, args.save)
+        else:
+            # 检查输入文件是否存在
+            if not os.path.exists(args.src):
+                print(f"错误: 输入文件不存在: {args.src}")
+                sys.exit(1)
+            
+            # 处理本地文件
+            result = extract_content_from_epub(args.src, args.product_code, args.md_img_dir, args.save)
+    elif args.file:
+        # 处理上传的文件
+        with open(args.file, 'rb') as f:
+            file_content = f.read()
+        
+        result = process_epub_file(file_content, args.product_code, args.md_img_dir, args.save)
     
     if result:
-        print(f"成功处理文件: {args.src}")
+        print(f"成功处理文件")
+        print("\n提取的Markdown内容:")
+        print(result)
     else:
-        print(f"处理文件失败: {args.src}")
+        print(f"处理文件失败")
         sys.exit(1)
 
 if __name__ == "__main__":
