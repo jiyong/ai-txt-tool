@@ -2,11 +2,8 @@ version: '3.8'
 
 services:
   book-processor:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: ${CONTAINER_NAME}
     image: ${IMAGE_NAME}
+    container_name: ${CONTAINER_NAME}
     ports:
       - "${HOST_PORT}:8000"
     volumes:
@@ -35,10 +32,6 @@ services:
       start_period: 40s
     networks:
       - book-network
-
-volumes:
-  redis-data:
-    name: epub-redis-data
 
 networks:
   book-network:
