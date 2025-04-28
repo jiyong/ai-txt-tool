@@ -12,8 +12,12 @@ import json
 import logging
 import argparse
 import os
+import sys
+import asyncio
 from typing import Dict, List, Union, Optional
 from pathlib import Path
+from oss_uploader import OSSUploader
+from task_manager import task_manager, TaskStatus
 
 # 配置日志
 logging.basicConfig(
@@ -107,22 +111,83 @@ class MarkdownStructureExtractor:
             "structure": self.extract_structure()
         }
 
-def extract_structure_from_markdown(markdown_content: str) -> Dict[str, List[Dict]]:
+async def upload_to_oss(product_code: str, data_dir: str) -> bool:
     """
-    从 Markdown 内容中提取结构数据
+    异步上传文件到OSS
     
     Args:
-        markdown_content: Markdown 内容
+        product_code: 产品代码
+        data_dir: 数据目录
         
     Returns:
-        包含所有提取结果的字典
+        bool: 上传是否成功
     """
     try:
-        extractor = MarkdownStructureExtractor(markdown_content)
-        return extractor.extract_all()
+        # 更新任务状态为进行中
+        await task_manager.update_task_status(product_code, "md-to-json-structure", TaskStatus.DOING, "正在上传文件到OSS")
+        
+        uploader = OSSUploader()
+        product_dir = os.path.join(data_dir, product_code)
+        
+        if not os.path.exists(product_dir):
+            logging.error(f"产品目录不存在: {product_dir}")
+            await task_manager.update_task_status(product_code, "md-to-json-structure", TaskStatus.FAIL, "产品目录不存在")
+            return False
+            
+        # 获取文件锁
+        if not await task_manager.acquire_file_lock(product_code):
+            logging.info(f"等待其他任务完成: {product_code}")
+            # 等待所有相关任务完成
+            if not await task_manager.wait_for_tasks_completion(product_code, ["epub-to-md", "md-to-json-structure"]):
+                await task_manager.update_task_status(product_code, "md-to-json-structure", TaskStatus.FAIL, "等待任务超时")
+                return False
+                
+        try:
+            # 上传整个产品目录
+            success = uploader.upload_directory(product_dir)
+            
+            if success:
+                # 上传成功后删除本地文件
+                uploader.delete_local_files(product_dir)
+                await task_manager.update_task_status(product_code, "md-to-json-structure", TaskStatus.SUCCESS, "文件上传成功")
+            else:
+                await task_manager.update_task_status(product_code, "md-to-json-structure", TaskStatus.FAIL, "文件上传失败")
+                
+            return success
+            
+        finally:
+            # 释放文件锁
+            await task_manager.release_file_lock(product_code)
+            
+    except Exception as e:
+        logging.error(f"上传到OSS失败: {str(e)}")
+        await task_manager.update_task_status(product_code, "md-to-json-structure", TaskStatus.FAIL, f"上传失败: {str(e)}")
+        return False
+
+def extract_structure_from_markdown(markdown_path: str, product_code: str, save: bool = False) -> dict:
+    """
+    从Markdown文件中提取结构并转换为JSON格式
+    
+    Args:
+        markdown_path: Markdown文件路径
+        product_code: 产品代码
+        save: 是否保存文件
+        
+    Returns:
+        dict: 提取的JSON结构
+    """
+    try:
+        extractor = MarkdownStructureExtractor(markdown_path)
+        structure = extractor.extract_structure()
+        
+        # 在保存文件后，启动异步上传任务
+        if save:
+            asyncio.create_task(upload_to_oss(product_code, os.path.join(os.getcwd(), "data")))
+        
+        return structure
         
     except Exception as e:
-        logger.error(f"处理 Markdown 内容时出错: {e}")
+        logger.error(f"处理 Markdown 文件时出错: {e}")
         raise
 
 def process_markdown_structure(content: str, product_code: str, save: bool = False) -> str:
@@ -139,7 +204,7 @@ def process_markdown_structure(content: str, product_code: str, save: bool = Fal
     """
     try:
         # 提取结构数据
-        results = extract_structure_from_markdown(content)
+        results = extract_structure_from_markdown(content, product_code, save)
         
         # 转换为 JSON 字符串
         json_str = json.dumps(results, ensure_ascii=False, indent=2)

@@ -7,6 +7,7 @@ WORKDIR /app
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
     build-essential \
+    redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件
@@ -20,10 +21,12 @@ COPY excel_to_meta.py .
 COPY epub_to_md.py .
 COPY md_to_json_structure.py .
 COPY text_keywords.py .
+COPY oss_uploader.py .
+COPY task_manager.py .
 COPY app.py .
 
 # 创建必要的目录
-RUN mkdir -p /app/src /app/output /app/data
+RUN mkdir -p /app/data
 
 # 暴露端口
 EXPOSE 8000

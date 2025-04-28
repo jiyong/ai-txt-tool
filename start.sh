@@ -9,7 +9,9 @@ else
 fi
 
 # 检查必要的环境变量
-if [ -z "$CONTAINER_NAME" ] || [ -z "$IMAGE_NAME" ] || [ -z "$API_KEY" ] || [ -z "$HOST_PORT" ] || [ -z "$BOOKS_SRC_DIR" ] || [ -z "$BOOKS_OUTPUT_DIR" ] || [ -z "$BOOKS_DATA_DIR" ]; then
+if [ -z "$CONTAINER_NAME" ] || [ -z "$IMAGE_NAME" ] || [ -z "$API_KEY" ] || [ -z "$HOST_PORT" ] || [ -z "$DATA_DIR" ] || \
+   [ -z "$ALIYUN_OSS_ACCESS_KEY" ] || [ -z "$ALIYUN_OSS_SECRET_KEY" ] || [ -z "$ALIYUN_OSS_ENDPOINT" ] || \
+   [ -z "$ALIYUN_OSS_BUCKET_NAME" ] || [ -z "$REDIS_HOST" ] || [ -z "$REDIS_PASSWORD" ]; then
     echo "错误: 环境变量配置不完整，请检查.env文件"
     exit 1
 fi
@@ -21,12 +23,10 @@ if ! docker info > /dev/null 2>&1; then
 fi
 
 # 检查目录是否存在
-for dir in "$BOOKS_SRC_DIR" "$BOOKS_OUTPUT_DIR" "$BOOKS_DATA_DIR"; do
-    if [ ! -d "$dir" ]; then
-        echo "创建目录: $dir"
-        mkdir -p "$dir"
-    fi
-done
+if [ ! -d "$DATA_DIR" ]; then
+    echo "创建目录: $DATA_DIR"
+    mkdir -p "$DATA_DIR"
+fi
 
 # 检查是否已经存在同名容器
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
@@ -44,10 +44,19 @@ echo "启动容器..."
 docker run -d \
     --name ${CONTAINER_NAME} \
     -p ${HOST_PORT}:8000 \
-    -v ${BOOKS_SRC_DIR}:/app/src \
-    -v ${BOOKS_OUTPUT_DIR}:/app/output \
-    -v ${BOOKS_DATA_DIR}:/app/data \
+    -v ${DATA_DIR}:/app/data \
     -e API_KEY=${API_KEY} \
+    -e ALIYUN_OSS_ACCESS_KEY=${ALIYUN_OSS_ACCESS_KEY} \
+    -e ALIYUN_OSS_SECRET_KEY=${ALIYUN_OSS_SECRET_KEY} \
+    -e ALIYUN_OSS_ENDPOINT=${ALIYUN_OSS_ENDPOINT} \
+    -e ALIYUN_OSS_REGION=${ALIYUN_OSS_REGION} \
+    -e ALIYUN_OSS_BUCKET_NAME=${ALIYUN_OSS_BUCKET_NAME} \
+    -e ALIYUN_OSS_AUTH_VERSION=${ALIYUN_OSS_AUTH_VERSION} \
+    -e ALIYUN_OSS_PATH=${ALIYUN_OSS_PATH} \
+    -e REDIS_HOST=${REDIS_HOST} \
+    -e REDIS_PORT=${REDIS_PORT} \
+    -e REDIS_DB=${REDIS_DB} \
+    -e REDIS_PASSWORD=${REDIS_PASSWORD} \
     ${IMAGE_NAME}
 
 # 检查容器是否成功启动
@@ -56,9 +65,9 @@ if [ $? -eq 0 ]; then
     echo "容器名称: ${CONTAINER_NAME}"
     echo "API地址: http://localhost:${HOST_PORT}"
     echo "API密钥: ${API_KEY}"
-    echo "图书源目录: ${BOOKS_SRC_DIR}"
-    echo "图书输出目录: ${BOOKS_OUTPUT_DIR}"
-    echo "图书数据目录: ${BOOKS_DATA_DIR}"
+    echo "数据目录: ${DATA_DIR}"
+    echo "Redis主机: ${REDIS_HOST}:${REDIS_PORT}"
+    echo "OSS存储桶: ${ALIYUN_OSS_BUCKET_NAME}"
     echo ""
     echo "使用示例:"
     echo ""
@@ -68,7 +77,7 @@ if [ $? -eq 0 ]; then
     echo "  -H \"Authorization: Bearer ${API_KEY}\" \\"
     echo "  -d '{"
     echo "    \"product_code\": \"100227-01\","
-    echo "    \"src\": \"/app/src/100227-01/100227-01工程材料及检测-数字教材.epub\","
+    echo "    \"src\": \"/app/data/100227-01/100227-01工程材料及检测-数字教材.epub\","
     echo "    \"md_img_dir\": \"/books/100227-01/images\","
     echo "    \"save\": true"
     echo "  }'"
@@ -86,7 +95,7 @@ if [ $? -eq 0 ]; then
     echo "  -H \"Authorization: Bearer ${API_KEY}\" \\"
     echo "  -d '{"
     echo "    \"product_code\": \"100227-01\","
-    echo "    \"src\": \"/app/output/100227-01/epub/100227-01.epub.md\","
+    echo "    \"src\": \"/app/data/100227-01/epub/100227-01.epub.md\","
     echo "    \"save\": true"
     echo "  }'"
     echo ""

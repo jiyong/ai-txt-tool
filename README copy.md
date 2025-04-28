@@ -1,137 +1,15 @@
-# EPUB内容提取和处理系统
+# EPUB内容提取器
 
-这是一个完整的EPUB处理系统，提供了文件转换、元数据提取、结构分析等功能，并支持文件存储和任务管理。
+这是一个用于提取EPUB电子书内容并转换为Markdown格式的工具。支持命令行使用和Web API接口。
 
-## 项目结构
+## 功能特点
 
-- `app.py`: FastAPI应用主文件，提供RESTful API接口
-- `epub_to_md.py`: EPUB文件转换工具
-- `excel_to_meta.py`: Excel元数据提取工具
-- `md_to_json_structure.py`: Markdown结构提取工具
-- `text_keywords.py`: 文本关键词提取工具
-- `oss_uploader.py`: 阿里云OSS上传工具
-- `task_manager.py`: 任务管理系统
-- `start.sh`: 容器启动脚本
-- `Dockerfile`: Docker镜像构建文件
-- `requirements.txt`: Python依赖列表
-
-## 主要功能
-
-- EPUB文件转换为Markdown
-- Excel元数据提取
-- Markdown结构提取
-- 文本关键词提取
-- 文件上传到OSS
-- 任务状态管理
-
-## 环境变量配置
-
-需要配置以下环境变量：
-
-### Docker配置
-- `CONTAINER_NAME`: 容器名称
-- `IMAGE_NAME`: 镜像名称
-- `HOST_PORT`: 主机端口
-- `API_KEY`: API密钥
-
-### 数据目录配置
-- `DATA_DIR`: 数据目录路径
-
-### 阿里云OSS配置
-- `ALIYUN_OSS_ACCESS_KEY`: 访问密钥
-- `ALIYUN_OSS_SECRET_KEY`: 密钥
-- `ALIYUN_OSS_ENDPOINT`: OSS端点
-- `ALIYUN_OSS_REGION`: 区域
-- `ALIYUN_OSS_BUCKET_NAME`: 存储桶名称
-- `ALIYUN_OSS_AUTH_VERSION`: 认证版本
-- `ALIYUN_OSS_PATH`: OSS路径
-
-### Redis配置
-- `REDIS_HOST`: Redis主机
-- `REDIS_PORT`: Redis端口
-- `REDIS_DB`: Redis数据库
-- `REDIS_PASSWORD`: Redis密码
-
-## API接口
-
-### EPUB转换
-```bash
-# 转换EPUB文件
-curl -X POST http://localhost:${HOST_PORT}/epub-to-md \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${API_KEY}" \
-  -d '{
-    "product_code": "100227-01",
-    "src": "/app/data/100227-01/100227-01工程材料及检测-数字教材.epub",
-    "md_img_dir": "/books/100227-01/images",
-    "save": true
-  }'
-
-# 上传EPUB文件
-curl -X POST http://localhost:${HOST_PORT}/epub-to-md/file \
-  -H "Authorization: Bearer ${API_KEY}" \
-  -F "file=@/path/to/book.epub" \
-  -F "product_code=100227-01" \
-  -F "save=true"
-```
-
-### Markdown结构提取
-```bash
-curl -X POST http://localhost:${HOST_PORT}/md-to-structure \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${API_KEY}" \
-  -d '{
-    "product_code": "100227-01",
-    "src": "/app/data/100227-01/epub/100227-01.epub.md",
-    "save": true
-  }'
-```
-
-### 关键词提取
-```bash
-curl -X POST http://localhost:${HOST_PORT}/extract-keywords \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer ${API_KEY}" \
-  -d '{
-    "text": "这是一段需要提取关键词的文本内容",
-    "topk": 10
-  }'
-```
-
-## 依赖管理
-
-- Python 3.12
-- FastAPI, uvicorn
-- beautifulsoup4, html2text
-- requests, python-multipart
-- pydantic, openpyxl, pandas
-- jieba, oss2, redis
-
-## 部署要求
-
-- Docker环境
-- Redis服务
-- 阿里云OSS账号
-- 必要的环境变量配置
-
-## 快速开始
-
-1. 复制环境变量配置文件：
-```bash
-cp .env.example .env
-```
-
-2. 编辑 `.env` 文件，配置必要的环境变量
-
-3. 启动服务：
-```bash
-./start.sh
-```
-
-4. 访问API文档：
-```
-http://localhost:${HOST_PORT}/docs
-```
+- 提取EPUB文件中的文本内容并转换为Markdown格式
+- 自动提取和保存EPUB中的图片
+- 支持命令行操作和Web API接口
+- 自动创建输出目录结构
+- 支持批量处理
+- 支持多种输入方式：本地文件、网络URL、文件上传
 
 ## 目录结构
 
@@ -935,10 +813,9 @@ cd epub-extractor
 ├── md_to_json_structure.py # Markdown结构提取模块
 ├── excel_to_meta.py      # Excel元数据提取模块
 ├── text_keywords.py      # 关键词提取模块
-├── oss_uploader.py       # 阿里云OSS上传工具
-├── task_manager.py       # 任务管理系统
-├── start.sh            # 启动脚本
+├── requirements.txt      # Python依赖
 ├── Dockerfile           # Docker构建文件
+├── start.sh            # 启动脚本
 └── README.md           # 项目文档
 ```
 

@@ -20,6 +20,10 @@ import tempfile
 from pathlib import Path
 import requests
 from io import BytesIO
+import logging
+import asyncio
+from oss_uploader import OSSUploader
+from task_manager import task_manager, TaskStatus
 
 def get_product_id(filename):
     """
@@ -59,6 +63,59 @@ def get_first_line_content(markdown_path):
     except Exception as e:
         print(f"读取Markdown文件时出错: {str(e)}")
         return None
+
+async def upload_to_oss(product_code: str, data_dir: str) -> bool:
+    """
+    异步上传文件到OSS
+    
+    Args:
+        product_code: 产品代码
+        data_dir: 数据目录
+        
+    Returns:
+        bool: 上传是否成功
+    """
+    try:
+        # 更新任务状态为进行中
+        await task_manager.update_task_status(product_code, "epub-to-md", TaskStatus.DOING, "正在上传文件到OSS")
+        
+        uploader = OSSUploader()
+        product_dir = os.path.join(data_dir, product_code)
+        
+        if not os.path.exists(product_dir):
+            logging.error(f"产品目录不存在: {product_dir}")
+            await task_manager.update_task_status(product_code, "epub-to-md", TaskStatus.FAIL, "产品目录不存在")
+            return False
+            
+        # 获取文件锁
+        if not await task_manager.acquire_file_lock(product_code):
+            logging.info(f"等待其他任务完成: {product_code}")
+            # 等待所有相关任务完成
+            if not await task_manager.wait_for_tasks_completion(product_code, ["epub-to-md", "md-to-json-structure"]):
+                await task_manager.update_task_status(product_code, "epub-to-md", TaskStatus.FAIL, "等待任务超时")
+                return False
+                
+        try:
+            # 上传整个产品目录
+            success = uploader.upload_directory(product_dir)
+            
+            if success:
+                # 上传成功后删除本地文件
+                uploader.delete_local_files(product_dir)
+                await task_manager.update_task_status(product_code, "epub-to-md", TaskStatus.SUCCESS, "文件上传成功")
+            else:
+                await task_manager.update_task_status(product_code, "epub-to-md", TaskStatus.FAIL, "文件上传失败")
+                
+            return success
+            
+        finally:
+            # 释放文件锁
+            await task_manager.release_file_lock(product_code)
+            
+    except Exception as e:
+        logging.error(f"上传到OSS失败: {str(e)}")
+        await task_manager.update_task_status(product_code, "epub-to-md", TaskStatus.FAIL, f"上传失败: {str(e)}")
+        return False
 
 def extract_content_from_epub(epub_path, product_code, md_img_dir=None, save=False):
     """
@@ -234,6 +291,10 @@ def extract_content_from_epub(epub_path, product_code, md_img_dir=None, save=Fal
             # 如果不保存，则删除临时文件
             if not save:
                 shutil.rmtree(temp_dir)
+            
+            # 在保存文件后，启动异步上传任务
+            if save:
+                asyncio.create_task(upload_to_oss(product_code, os.path.join(os.getcwd(), "data")))
             
             return markdown_text
             
