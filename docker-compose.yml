@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  book-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${CONTAINER_NAME}
+    image: ${IMAGE_NAME}
+    ports:
+      - "${HOST_PORT}:8000"
+    volumes:
+      - ${DATA_DIR}:/app/data
+    env_file:
+      - .env
+    environment:
+      - API_KEY=${API_KEY}
+      - ALIYUN_OSS_ACCESS_KEY=${ALIYUN_OSS_ACCESS_KEY}
+      - ALIYUN_OSS_SECRET_KEY=${ALIYUN_OSS_SECRET_KEY}
+      - ALIYUN_OSS_ENDPOINT=${ALIYUN_OSS_ENDPOINT}
+      - ALIYUN_OSS_REGION=${ALIYUN_OSS_REGION}
+      - ALIYUN_OSS_BUCKET_NAME=${ALIYUN_OSS_BUCKET_NAME}
+      - ALIYUN_OSS_AUTH_VERSION=${ALIYUN_OSS_AUTH_VERSION}
+      - ALIYUN_OSS_PATH=${ALIYUN_OSS_PATH}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_DB=${REDIS_DB}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - book-network
+
+volumes:
+  redis-data:
+    name: epub-redis-data
+
+networks:
+  book-network:
+    name: book-network
+    driver: bridge 
