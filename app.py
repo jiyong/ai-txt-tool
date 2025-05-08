@@ -13,7 +13,9 @@ from pydantic import BaseModel
 import os
 import excel_to_meta
 import epub_to_md
+import pdf_to_md
 import md_to_json_structure
+import md_to_json
 import text_keywords
 from typing import Optional, Dict, Any, Union
 import uvicorn
@@ -83,6 +85,10 @@ class MarkdownStructureRequest(BaseModel):
 class KeywordsRequest(BaseModel):
     text: str
     topk: Optional[int] = 10
+
+# 文本转JSON请求模型
+class TextToJsonRequest(BaseModel):
+    text: str
 
 # 统一响应格式
 def create_response(
@@ -310,6 +316,111 @@ async def extract_keywords(request: KeywordsRequest, api_key: str = Depends(veri
                 "message": f"处理文本时出错: {str(e)}",
                 "code": "PROCESSING_ERROR"
             }
+        )
+
+# PDF转换接口
+@app.post("/pdf-to-md")
+async def convert_pdf(request: ConversionRequest, api_key: str = Depends(verify_api_key)):
+    try:
+        result = pdf_to_md.extract_content_from_pdf(
+            request.src,
+            request.product_code,
+            request.md_img_dir,
+            request.save
+        )
+        return create_response(
+            status="success",
+            message="PDF转换成功",
+            data={
+                "product_code": request.product_code,
+                "content": result,
+                "output_file": f"./data/{request.product_code}/pdf/{request.product_code}.pdf.md" if request.save else None,
+                "img_dir": f"./data/{request.product_code}/images/" if request.save else None
+            }
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=create_response(
+                status="error",
+                message=f"文件不存在: {str(e)}",
+                code="FILE_NOT_FOUND"
+            )
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=create_response(
+                status="error",
+                message=f"处理请求时出错: {str(e)}",
+                code="INTERNAL_SERVER_ERROR"
+            )
+        )
+
+# PDF文件上传接口
+@app.post("/pdf-to-md/file")
+async def convert_pdf_file(
+    file: UploadFile = File(...),
+    product_code: str = Form(...),
+    save: bool = Form(False),
+    api_key: str = Depends(verify_api_key)
+):
+    try:
+        # 保存上传的文件
+        temp_file_path = f"/tmp/{file.filename}"
+        with open(temp_file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # 处理文件
+        result = pdf_to_md.extract_content_from_pdf(
+            temp_file_path,
+            product_code,
+            None,
+            save
+        )
+        
+        # 删除临时文件
+        os.remove(temp_file_path)
+        
+        return create_response(
+            status="success",
+            message="PDF转换成功",
+            data={
+                "product_code": product_code,
+                "content": result,
+                "output_file": f"./data/{product_code}/pdf/{product_code}.pdf.md" if save else None,
+                "img_dir": f"./data/{product_code}/images/" if save else None
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=create_response(
+                status="error",
+                message=f"处理请求时出错: {str(e)}",
+                code="INTERNAL_SERVER_ERROR"
+            )
+        )
+
+# 文本转JSON接口
+@app.post("/text-to-json")
+async def convert_text_to_json(request: TextToJsonRequest, api_key: str = Depends(verify_api_key)):
+    try:
+        result = md_to_json.text_to_json(request.text)
+        return create_response(
+            status="success",
+            message="文本转换成功",
+            data=result
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=create_response(
+                status="error",
+                message=f"处理请求时出错: {str(e)}",
+                code="INTERNAL_SERVER_ERROR"
+            )
         )
 
 if __name__ == "__main__":

@@ -1,12 +1,13 @@
-# 图书EPUB内容提取和处理程序
+# 文本处理工具
 
-这是一个完整的EPUB处理系统，提供了文件转换、元数据提取、结构分析等功能，并支持文件存储和任务管理。
-定制化比较强
+提供给其他平台接口使用
+都是AI生成的
 
 ## 项目结构
 
 - `app.py`: FastAPI应用主文件，提供RESTful API接口
 - `epub_to_md.py`: EPUB文件转换工具
+- `pdf_to_md.py`: PDF文件转换工具
 - `excel_to_meta.py`: Excel元数据提取工具
 - `md_to_json_structure.py`: Markdown结构提取工具
 - `text_keywords.py`: 文本关键词提取工具
@@ -19,6 +20,7 @@
 ## 主要功能
 
 - EPUB文件转换为Markdown
+- PDF文件转换为Markdown
 - Excel元数据提取
 - Markdown结构提取
 - 文本关键词提取
@@ -72,6 +74,27 @@ curl -X POST http://localhost:${HOST_PORT}/epub-to-md \
 curl -X POST http://localhost:${HOST_PORT}/epub-to-md/file \
   -H "Authorization: Bearer ${API_KEY}" \
   -F "file=@/path/to/book.epub" \
+  -F "product_code=100227-01" \
+  -F "save=true"
+```
+
+### PDF转换
+```bash
+# 转换PDF文件
+curl -X POST http://localhost:${HOST_PORT}/pdf-to-md \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -d '{
+    "product_code": "100227-01",
+    "src": "/app/data/100227-01/100227-01工程材料及检测-数字教材.pdf",
+    "md_img_dir": "/books/100227-01/images",
+    "save": true
+  }'
+
+# 上传PDF文件
+curl -X POST http://localhost:${HOST_PORT}/pdf-to-md/file \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -F "file=@/path/to/book.pdf" \
   -F "product_code=100227-01" \
   -F "save=true"
 ```
@@ -181,6 +204,32 @@ python epub_to_md.py --src https://example.com/book.epub --product_code 100227-0
 python epub_to_md.py --src /books/src/100227-01/book1.epub --product_code 100227-01 --md_img_dir /books/100227-01/images
 ```
 
+### PDF转Markdown
+
+```bash
+python pdf_to_md.py --src /path/to/book.pdf --product_code 100227-01 --save
+```
+
+参数说明：
+- `--src`: PDF文件路径或URL
+- `--file`: 上传的PDF文件
+- `--product_code`: 产品编号（必需）
+- `--md_img_dir`: Markdown图片引用路径
+- `--save`: 是否保存到文件（默认为false）
+
+### 示例
+
+```bash
+# 使用完整路径，保存文件
+python pdf_to_md.py --src /books/src/100227-01/book1.pdf --product_code 100227-01 --md_img_dir /books/100227-01/images --save
+
+# 使用URL，不保存文件
+python pdf_to_md.py --src https://example.com/book.pdf --product_code 100227-01 --md_img_dir /books/100227-01/images
+
+# 不保存文件，直接返回Markdown内容
+python pdf_to_md.py --src /books/src/100227-01/book1.pdf --product_code 100227-01 --md_img_dir /books/100227-01/images
+```
+
 ## Web API 使用
 
 ### 启动服务
@@ -238,6 +287,29 @@ python app.py
     "message": "转换成功",
     "content": "# 书籍标题\n\n**作者：作者名**\n\n...",
     "output_file": "./data/100227-01/epub/100227-01.epub.md",
+    "img_dir": "./data/100227-01/images/",
+    "md_img_dir": "/books/100227-01/images"
+}
+```
+
+#### 转换PDF文件（文件上传）
+
+**POST** `/pdf-to-md/file`
+
+请求体（表单数据）：
+- `file`: PDF文件
+- `product_code`: 产品编号
+- `md_img_dir`: Markdown图片引用路径（可选）
+- `save`: 是否保存到文件（默认为false）
+
+响应示例：
+```json
+{
+    "status": "success",
+    "product_code": "100227-01",
+    "message": "转换成功",
+    "content": "# 书籍标题\n\n**作者：作者名**\n\n...",
+    "output_file": "./data/100227-01/pdf/100227-01.pdf.md",
     "img_dir": "./data/100227-01/images/",
     "md_img_dir": "/books/100227-01/images"
 }
@@ -933,6 +1005,7 @@ cd epub-extractor
 .
 ├── app.py                 # FastAPI应用主文件
 ├── epub_to_md.py         # EPUB转换模块
+├── pdf_to_md.py          # PDF转换模块
 ├── md_to_json_structure.py # Markdown结构提取模块
 ├── excel_to_meta.py      # Excel元数据提取模块
 ├── text_keywords.py      # 关键词提取模块
